@@ -1,0 +1,1 @@
+"""Narrative shift detection modules."""

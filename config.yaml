@@ -1,0 +1,72 @@
+# ============================================================
+# Narameter — Default Configuration
+# Deteksi Perubahan Narasi Publik
+# ============================================================
+
+embedding:
+  # Multilingual SBERT model (supports Indonesian)
+  model_name: "paraphrase-multilingual-MiniLM-L12-v2"
+  batch_size: 64
+  device: "cpu"  # "cpu", "cuda", or "mps" (Apple Silicon)
+  cache_dir: "data/processed/embeddings"
+
+distance:
+  # Method: "emd" (exact), "sinkhorn" (regularized), "sliced" (fast approximation)
+  method: "sliced"
+  # Number of random projections for Sliced Wasserstein Distance
+  n_projections: 500
+  # Regularization parameter for Sinkhorn
+  regularization: 0.05
+  # Wasserstein-p distance (p=1 or p=2)
+  p: 2
+  # Random seed for reproducibility
+  seed: 42
+
+detection:
+  # Method: "zscore", "iqr", "otsu" (recommended), "threshold"
+  method: "otsu"
+  # Z-score threshold for shift detection
+  zscore_threshold: 2.0
+  # Fixed threshold value (used when method="threshold")
+  fixed_threshold: null
+  # Window size for rolling statistics
+  window_size: 3
+  # Minimum number of documents per period
+  min_period_size: 10
+
+preprocessing:
+  language: "id"  # Indonesian
+  remove_urls: true
+  remove_mentions: true
+  remove_hashtag_symbol: true
+  remove_numbers: false
+  remove_punctuation: true
+  lowercase: true
+  stem: true
+  remove_stopwords: true
+  min_length: 5  # minimum characters after preprocessing
+  deduplicate: true
+
+time_period:
+  # Granularity: "day", "week", "month"
+  granularity: "week"
+  # Date format for parsing (strftime format)
+  date_format: null  # auto-detect if null
+
+visualization:
+  # Style for matplotlib plots
+  style: "seaborn-v0_8-whitegrid"
+  # Figure DPI for saved plots
+  dpi: 150
+  # Figure size (width, height) in inches
+  figsize: [12, 6]
+  # Color scheme
+  colormap: "viridis"
+  # Output format: "png", "pdf", "svg", "html"
+  format: "png"
+  # Also generate interactive plotly HTML
+  interactive: true
+
+output:
+  dir: "output"
+  save_intermediate: true  # save embeddings, distances as files
