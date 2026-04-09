@@ -65,10 +65,26 @@ class TimePeriodConfig:
 class VisualizationConfig:
     style: str = "seaborn-v0_8-whitegrid"
     dpi: int = 150
-    figsize: list = field(default_factory=lambda: [12, 6])
+    figsize: list = field(default_factory=lambda: [15, 8])
     colormap: str = "viridis"
     format: str = "png"
     interactive: bool = True
+
+
+@dataclass
+class TopicConfig:
+    enabled: bool = True
+    n_topics: int = 0  # 0 = auto (HDBSCAN), >0 = fixed (KMeans)
+    min_topic_size: int = 5
+    n_top_words: int = 8
+    language: str = "multilingual"
+    seed: int = 42
+    
+    # LLM Summarization options
+    representation_model: str = "keyword"  # "keyword", "openai", "gemini", "keybert"
+    llm_model_name: str = "llama-3.1-8b-instant"
+    llm_base_url: Optional[str] = None
+    llm_prompt: str = "Summarize the following topic into a concise 3-word phrase: [DOCUMENTS]"
 
 
 @dataclass
@@ -87,6 +103,7 @@ class NarameterConfig:
     preprocessing: PreprocessingConfig = field(default_factory=PreprocessingConfig)
     time_period: TimePeriodConfig = field(default_factory=TimePeriodConfig)
     visualization: VisualizationConfig = field(default_factory=VisualizationConfig)
+    topic: TopicConfig = field(default_factory=TopicConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
 
     @classmethod
@@ -113,6 +130,8 @@ class NarameterConfig:
             config.time_period = TimePeriodConfig(**raw["time_period"])
         if "visualization" in raw:
             config.visualization = VisualizationConfig(**raw["visualization"])
+        if "topic" in raw:
+            config.topic = TopicConfig(**raw["topic"])
         if "output" in raw:
             config.output = OutputConfig(**raw["output"])
 

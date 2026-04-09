@@ -1,0 +1,17 @@
+preprocessing:
+  stem: false
+
+topic:
+  enabled: true
+  
+  # Choose your representation model: "keyword", "openai", "gemini", or "keybert"
+  # - "keybert": Uses zero-shot phrasing to pull natural-sounding phrases ("IKN Relocation delay"). Runs locally, completely free.
+  # - "openai": Passes tweets to an OpenAI compatible endpoint for a human-like summary.
+  # - "gemini": Passes tweets to Google Gemini. (Requires GOOGLE_API_KEY environment variable)
+  representation_model: "openai"
+  
+  # Llama-3 configuration via Groq (Free OpenAI-compatible endpoint)
+  # Requires exporting GROQ_API_KEY in your terminal (e.g., `export GROQ_API_KEY="gsk_..."`)
+  llm_base_url: "https://api.groq.com/openai/v1"
+  llm_model_name: "llama-3.1-8b-instant"
+  llm_prompt: "Summarize the overarching narrative of the following tweets into a concise 3-word category/phrase: [DOCUMENTS]"

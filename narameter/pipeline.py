@@ -25,6 +25,7 @@ from narameter.data.preprocessor import TextPreprocessor
 from narameter.detection.detector import NarrativeShiftDetector
 from narameter.distance.wasserstein import WassersteinCalculator
 from narameter.embedding.encoder import SentenceEncoder
+from narameter.topic.modeler import TopicModeler
 from narameter.visualization.plots import NarrativeVisualizer
 
 logger = logging.getLogger(__name__)
@@ -57,6 +58,11 @@ class NarameterPipeline:
         self.calculator = WassersteinCalculator(self.config.distance)
         self.detector = NarrativeShiftDetector(self.config.detection)
         self.visualizer = NarrativeVisualizer(self.config.visualization)
+        
+        self.topic_modeler = None
+        if getattr(self.config, "topic", None) and self.config.topic.enabled:
+            topic_kwargs = {k: v for k, v in self.config.topic.__dict__.items() if k != "enabled"}
+            self.topic_modeler = TopicModeler(**topic_kwargs)
 
     def run(
         self,
@@ -77,7 +83,12 @@ class NarameterPipeline:
         Returns:
             Detection results DataFrame.
         """
-        output_dir = output_dir or self.config.output.dir
+        import datetime
+        base_dir = output_dir or self.config.output.dir
+        input_basename = os.path.splitext(os.path.basename(input_path))[0]
+        timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d_%H%M%S")
+        output_dir = os.path.join(base_dir, f"{timestamp}_{input_basename}")
+        
         os.makedirs(output_dir, exist_ok=True)
 
         start_time = time.time()
@@ -147,6 +158,43 @@ class NarameterPipeline:
         # Step 6: Detect narrative shifts
         console.print("\n[bold]⚡ Step 6/6: Detecting Narrative Shifts[/bold]")
         results = self.detector.detect(distances_df)
+        
+        # Topic Modeling
+        if self.topic_modeler is not None:
+            console.print("\n[bold]🧠 Topic Modeling (BERTopic)[/bold]")
+            
+            # Flatten texts and embeddings
+            flat_texts = []
+            flat_embs = []
+            flat_periods = []
+            for period, txts in period_texts.items():
+                flat_texts.extend(txts)
+                flat_embs.append(period_embeddings[period])
+                flat_periods.extend([period] * len(txts))
+                
+            X_emb = np.vstack(flat_embs)
+            
+            # Fit topic model
+            topic_info, doc_topics = self.topic_modeler.fit(
+                flat_texts, X_emb, embedding_model=self.encoder.model
+            )
+            
+            # Get proportions and explain shifts
+            proportions = self.topic_modeler.get_period_proportions(doc_topics, flat_periods, prefer_llm=True)
+            results = self.topic_modeler.explain_shifts(proportions, results)
+            proportions.to_csv(os.path.join(output_dir, "topic_proportions.csv"))
+            
+            # If an LLM was used, also save separated non-LLM (keyword) versions for reality check
+            if "LLM" in topic_info.columns:
+                proportions_keywords = self.topic_modeler.get_period_proportions(doc_topics, flat_periods, prefer_llm=False)
+                results = self.topic_modeler.explain_shifts(proportions_keywords, results, output_suffix="_keywords")
+                proportions_keywords.to_csv(os.path.join(output_dir, "topic_proportions_keywords.csv"))
+            
+            # Save topic info
+            topic_info.to_csv(os.path.join(output_dir, "topic_info.csv"), index=False)
+            
+            console.print(f"  Found [green]{len(topic_info)}[/green] topics")
+
         summary = self.detector.summary(results)
 
         self._print_detection_results(results, summary)
@@ -232,6 +280,42 @@ class NarameterPipeline:
         # Detect shifts
         results = self.detector.detect(distances_df)
 
+        # Topic Modeling
+        if self.topic_modeler is not None:
+            console.print("\n[bold]🧠 Topic Modeling (BERTopic)[/bold]")
+            
+            # Flatten texts and embeddings
+            flat_texts = []
+            flat_embs = []
+            flat_periods = []
+            for period, txts in period_texts.items():
+                flat_texts.extend(txts)
+                flat_embs.append(period_embeddings[period])
+                flat_periods.extend([period] * len(txts))
+                
+            X_emb = np.vstack(flat_embs)
+            
+            # Fit topic model
+            topic_info, doc_topics = self.topic_modeler.fit(
+                flat_texts, X_emb, embedding_model=self.encoder.model
+            )
+            
+            # Get proportions and explain shifts
+            proportions = self.topic_modeler.get_period_proportions(doc_topics, flat_periods, prefer_llm=True)
+            results = self.topic_modeler.explain_shifts(proportions, results)
+            proportions.to_csv(os.path.join(output_dir, "topic_proportions.csv"))
+            
+            # If an LLM was used, also save separated non-LLM (keyword) versions for reality check
+            if "LLM" in topic_info.columns:
+                proportions_keywords = self.topic_modeler.get_period_proportions(doc_topics, flat_periods, prefer_llm=False)
+                results = self.topic_modeler.explain_shifts(proportions_keywords, results, output_suffix="_keywords")
+                proportions_keywords.to_csv(os.path.join(output_dir, "topic_proportions_keywords.csv"))
+            
+            # Save topic info
+            topic_info.to_csv(os.path.join(output_dir, "topic_info.csv"), index=False)
+            
+            console.print(f"  Found [green]{len(topic_info)}[/green] topics")
+
         # Visualize
         self.visualizer.generate_report(
             results, period_embeddings, output_dir,
@@ -250,10 +334,13 @@ class NarameterPipeline:
 
         if granularity == "day":
             df["period"] = df["timestamp"].dt.strftime("%Y-%m-%d")
-        elif granularity == "week":
-            df["period"] = df["timestamp"].dt.to_period("W").astype(str)
-        elif granularity == "month":
-            df["period"] = df["timestamp"].dt.to_period("M").astype(str)
+        elif granularity in ["week", "month"]:
+            # Drop timezone info to avoid pandas UserWarning before converting to period
+            ts_no_tz = df["timestamp"].dt.tz_localize(None)
+            if granularity == "week":
+                df["period"] = ts_no_tz.dt.to_period("W").astype(str)
+            else:
+                df["period"] = ts_no_tz.dt.to_period("M").astype(str)
         else:
             raise ValueError(f"Unknown granularity: {granularity}")
 

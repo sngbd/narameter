@@ -29,6 +29,8 @@ dependencies = [
     "Sastrawi>=1.0",
     "rich>=13.0",
     "kaleido>=0.2",
+    "bertopic>=0.16.0",
+    "hdbscan>=0.8.33",
 ]
 
 [project.optional-dependencies]

@@ -144,20 +144,34 @@ class NarrativeVisualizer:
                     label="Narrative Shift Detected",
                 )
 
-                # Add magnitude annotations
+                # Add magnitude and topic change annotations
                 for idx, (sx, sy) in enumerate(zip(shift_x, shift_y)):
                     shift_row = results[results["is_shift"]].iloc[idx]
                     magnitude = shift_row.get("shift_magnitude", "")
+                    summary = shift_row.get("shift_summary", "")
+                    
+                    annotation_text = "⚡"
                     if magnitude and magnitude != "none":
+                        annotation_text += f" {magnitude}"
+                    if summary and summary != "stable":
+                        # Wrap long summaries or take first topic
+                        first_topic = summary.split(";")[0] if ";" in summary else summary
+                        # Truncate if too long
+                        if len(first_topic) > 30:
+                            first_topic = first_topic[:27] + "..."
+                        annotation_text += f"\n{first_topic}"
+                        
+                    if len(annotation_text) > 1: # more than just the lightning bolt
                         ax.annotate(
-                            f"⚡ {magnitude}",
+                            annotation_text,
                             (sx, sy),
                             textcoords="offset points",
-                            xytext=(0, 18),
+                            xytext=(0, 15),
                             ha="center",
-                            fontsize=9,
+                            fontsize=8,
                             fontweight="bold",
                             color=COLORS["danger"],
+                            bbox=dict(boxstyle="round,pad=0.2", fc=COLORS["surface"], ec="none", alpha=0.8),
                         )
 
         # Rolling mean line
@@ -173,14 +187,17 @@ class NarrativeVisualizer:
             )
 
         # Styling
-        ax.set_xlabel("Time Period Transition", fontsize=12, color=COLORS["text"])
-        ax.set_ylabel("Wasserstein Distance", fontsize=12, color=COLORS["text"])
-        ax.set_title(title, fontsize=14, fontweight="bold", color=COLORS["text"], pad=15)
+        ax.set_xlabel("Time Period Transition", fontsize=12, color=COLORS["text"], labelpad=15)
+        ax.set_ylabel("Wasserstein Distance", fontsize=12, color=COLORS["text"], labelpad=15)
+        ax.set_title(title, fontsize=14, fontweight="bold", color=COLORS["text"], pad=30)
         ax.set_xticks(x)
         ax.set_xticklabels(x_labels, fontsize=8, color=COLORS["text"], rotation=0)
+        ax.tick_params(axis='x', pad=10)
         ax.tick_params(colors=COLORS["text"])
-        ax.legend(
-            loc="upper left",
+        legend = ax.legend(
+            loc="upper center",
+            bbox_to_anchor=(0.5, -0.30),
+            ncol=3,
             fontsize=9,
             facecolor=COLORS["surface"],
             edgecolor=COLORS["neutral"],
@@ -199,6 +216,7 @@ class NarrativeVisualizer:
             fig.savefig(
                 save_path,
                 dpi=self.config.dpi,
+                bbox_extra_artists=(legend,),
                 bbox_inches="tight",
                 facecolor=fig.get_facecolor(),
             )
@@ -563,11 +581,24 @@ class NarrativeVisualizer:
                     f"{row['period_a']} → {row['period_b']}"
                     for _, row in shifts.iterrows()
                 ]
+                
+                # Extract summaries for hover text
+                custom_data = []
+                for _, row in shifts.iterrows():
+                    summary = row.get("shift_summary", "")
+                    if summary and summary != "stable":
+                        # format as bullet points
+                        formatted = "<br> • " + "<br> • ".join(summary.split("; "))
+                    else:
+                        formatted = "<br> • No identifiable topic shift"
+                    custom_data.append(formatted)
+
                 fig.add_trace(go.Scatter(
                     x=shift_labels,
                     y=shifts["distance"],
                     mode="markers",
                     name="Narrative Shift",
+                    customdata=custom_data,
                     marker=dict(
                         size=18,
                         color=COLORS["danger"],
@@ -578,6 +609,7 @@ class NarrativeVisualizer:
                         "<b>⚡ SHIFT DETECTED</b><br>"
                         "%{x}<br>"
                         "Distance: %{y:.4f}<br>"
+                        "<b>Top Topic Changes:</b>%{customdata}<br>"
                         "<extra></extra>"
                     ),
                 ))
