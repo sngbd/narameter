@@ -190,10 +190,18 @@ class DataLoader:
             raise ValueError(
                 f"Text column '{text_col}' not found. Available: {list(df.columns)}"
             )
+        # Fallback logic for date_col
         if date_col not in df.columns:
-            raise ValueError(
-                f"Date column '{date_col}' not found. Available: {list(df.columns)}"
-            )
+            if "timestamp" in df.columns:
+                date_col = "timestamp"
+            elif "date" in df.columns:
+                date_col = "date"
+            elif "created_at" in df.columns:
+                date_col = "created_at"
+            else:
+                raise ValueError(
+                    f"Date column '{date_col}' not found. Available: {list(df.columns)}"
+                )
 
         # Build standardized DataFrame
         result = pd.DataFrame()

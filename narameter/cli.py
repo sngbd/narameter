@@ -151,7 +151,7 @@ def scrape(
         return
 
     os.makedirs(output, exist_ok=True)
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now().strftime("%d-%m-%y_%H%M%S")
     safe_query = query.replace(" ", "_")[:30]
     filepath = os.path.join(output, f"twitter_{safe_query}_{ts}.json")
     df.to_json(filepath, orient="records", date_format="iso", indent=2)
@@ -214,7 +214,7 @@ def scrape_run(
 
     # Save raw data
     os.makedirs("data/raw", exist_ok=True)
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now().strftime("%d-%m-%y_%H%M%S")
     safe_query = query.replace(" ", "_")[:30]
     raw_path = f"data/raw/twitter_{safe_query}_{ts}.json"
     df.to_json(raw_path, orient="records", date_format="iso", indent=2)

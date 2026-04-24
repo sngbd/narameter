@@ -133,6 +133,16 @@ class NarrativeVisualizer:
             if shift_mask.any():
                 shift_x = x[shift_mask]
                 shift_y = distances[shift_mask]
+
+                # PELT-style vertical bands for detected shifts
+                for sx in shift_x:
+                    ax.axvspan(
+                        sx - 0.3, sx + 0.3,
+                        alpha=0.10,
+                        color=COLORS["danger"],
+                        zorder=1,
+                    )
+
                 ax.scatter(
                     shift_x, shift_y,
                     color=COLORS["danger"],
@@ -186,6 +196,57 @@ class NarrativeVisualizer:
                 zorder=2,
             )
 
+        # ------------------------------------------------------------------
+        # Dual-axis: Sentiment Overlay
+        # ------------------------------------------------------------------
+        ax2 = None
+        if "corpus_mean_sentiment" in results.columns:
+            sentiment_vals = results["corpus_mean_sentiment"].values
+            # Only plot if we have valid sentiment data
+            if not np.all(np.isnan(sentiment_vals)):
+                ax2 = ax.twinx()
+                ax2.set_facecolor("none")
+
+                # Color each segment based on sentiment polarity
+                for i in range(len(x) - 1):
+                    seg_color = "#4ade80" if sentiment_vals[i] >= 0 else "#f87171"
+                    ax2.plot(
+                        x[i : i + 2],
+                        sentiment_vals[i : i + 2],
+                        color=seg_color,
+                        linewidth=2.0,
+                        alpha=0.85,
+                        zorder=2,
+                    )
+
+                # Plot sentiment markers
+                pos_mask = sentiment_vals >= 0
+                neg_mask = sentiment_vals < 0
+                if pos_mask.any():
+                    ax2.scatter(
+                        x[pos_mask], sentiment_vals[pos_mask],
+                        color="#4ade80", s=50, zorder=4,
+                        marker="D", edgecolors="white", linewidth=0.8,
+                        label="Sentiment (positive)",
+                    )
+                if neg_mask.any():
+                    ax2.scatter(
+                        x[neg_mask], sentiment_vals[neg_mask],
+                        color="#f87171", s=50, zorder=4,
+                        marker="D", edgecolors="white", linewidth=0.8,
+                        label="Sentiment (negative)",
+                    )
+
+                ax2.set_ylabel(
+                    "Sentiment Polarity", fontsize=11,
+                    color="#a1a1aa", labelpad=15,
+                )
+                ax2.set_ylim(-1.1, 1.1)
+                ax2.axhline(y=0, color="#a1a1aa", linestyle="-", linewidth=0.5, alpha=0.3)
+                ax2.tick_params(colors="#a1a1aa")
+                ax2.spines["right"].set_color("#a1a1aa")
+                ax2.spines["top"].set_visible(False)
+
         # Styling
         ax.set_xlabel("Time Period Transition", fontsize=12, color=COLORS["text"], labelpad=15)
         ax.set_ylabel("Wasserstein Distance", fontsize=12, color=COLORS["text"], labelpad=15)
@@ -194,7 +255,16 @@ class NarrativeVisualizer:
         ax.set_xticklabels(x_labels, fontsize=8, color=COLORS["text"], rotation=0)
         ax.tick_params(axis='x', pad=10)
         ax.tick_params(colors=COLORS["text"])
+
+        # Collect legend handles from both axes
+        handles, labels = ax.get_legend_handles_labels()
+        if ax2 is not None:
+            h2, l2 = ax2.get_legend_handles_labels()
+            handles += h2
+            labels += l2
+
         legend = ax.legend(
+            handles, labels,
             loc="upper center",
             bbox_to_anchor=(0.5, -0.30),
             ncol=3,
@@ -633,6 +703,92 @@ class NarrativeVisualizer:
             fig.write_html(save_path)
             logger.info(f"Interactive plot saved to {save_path}")
 
+    def plot_entity_heatmap(
+        self,
+        entity_matrix: "pd.DataFrame",
+        title: str = "Entity Prominence Over Time",
+        save_path: Optional[str] = None,
+    ) -> None:
+        """
+        Plot a heatmap showing entity prominence across time periods.
+
+        Args:
+            entity_matrix: DataFrame with entities as rows and periods as columns.
+                           Values are normalized frequencies.
+            title: Plot title.
+            save_path: Path to save the figure.
+        """
+        if entity_matrix.empty:
+            logger.warning("Empty entity matrix, skipping heatmap.")
+            return
+
+        n_entities = len(entity_matrix)
+        fig_height = max(5, 0.6 * n_entities + 2)
+        fig, ax = plt.subplots(
+            figsize=(max(10, len(entity_matrix.columns) * 1.8), fig_height),
+            facecolor=COLORS["background"],
+        )
+        ax.set_facecolor(COLORS["background"])
+
+        # Create heatmap
+        data = entity_matrix.values
+        im = ax.imshow(
+            data,
+            cmap="YlOrRd",
+            aspect="auto",
+            interpolation="nearest",
+        )
+
+        # Labels
+        ax.set_xticks(range(len(entity_matrix.columns)))
+        ax.set_xticklabels(
+            entity_matrix.columns, fontsize=9, color=COLORS["text"],
+            rotation=30, ha="right",
+        )
+        ax.set_yticks(range(n_entities))
+        ax.set_yticklabels(
+            entity_matrix.index, fontsize=10, color=COLORS["text"],
+        )
+
+        # Annotate cells with values
+        for i in range(n_entities):
+            for j in range(len(entity_matrix.columns)):
+                val = data[i, j]
+                if val > 0:
+                    text_color = "white" if val > data.max() * 0.6 else COLORS["text"]
+                    ax.text(
+                        j, i, f"{val:.2f}",
+                        ha="center", va="center",
+                        fontsize=8, color=text_color, fontweight="bold",
+                    )
+
+        # Colorbar
+        cbar = fig.colorbar(im, ax=ax, shrink=0.8, pad=0.02)
+        cbar.set_label(
+            "Normalized Frequency (mentions / documents)",
+            fontsize=10, color=COLORS["text"],
+        )
+        cbar.ax.tick_params(colors=COLORS["text"])
+
+        ax.set_title(title, fontsize=14, fontweight="bold", color=COLORS["text"], pad=15)
+        ax.set_xlabel("Time Period", fontsize=11, color=COLORS["text"], labelpad=10)
+        ax.set_ylabel("Entity", fontsize=11, color=COLORS["text"], labelpad=10)
+        ax.tick_params(colors=COLORS["text"])
+
+        plt.tight_layout()
+
+        if save_path:
+            os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
+            fig.savefig(
+                save_path,
+                dpi=self.config.dpi,
+                bbox_inches="tight",
+                facecolor=fig.get_facecolor(),
+            )
+            logger.info(f"Entity heatmap saved to {save_path}")
+
+        plt.close(fig)
+
     def generate_report(
         self,
         results: pd.DataFrame,
@@ -640,6 +796,7 @@ class NarrativeVisualizer:
         output_dir: str = "output",
         distance_matrix: Optional[np.ndarray] = None,
         distance_labels: Optional[list[str]] = None,
+        entity_matrix: Optional[pd.DataFrame] = None,
     ) -> list[str]:
         """
         Generate a complete set of visualizations.
@@ -650,6 +807,7 @@ class NarrativeVisualizer:
             output_dir: Output directory for plots.
             distance_matrix: Optional precomputed distance matrix.
             distance_labels: Labels for distance matrix.
+            entity_matrix: Optional entity prominence matrix for heatmap.
 
         Returns:
             List of generated file paths.
@@ -699,6 +857,12 @@ class NarrativeVisualizer:
                         save_path=comp_path,
                     )
                     generated_files.append(comp_path)
+
+        # 6. Entity prominence heatmap
+        if entity_matrix is not None and not entity_matrix.empty:
+            heatmap_path = os.path.join(output_dir, f"entity_heatmap.{self.config.format}")
+            self.plot_entity_heatmap(entity_matrix, save_path=heatmap_path)
+            generated_files.append(heatmap_path)
 
         logger.info(f"Generated {len(generated_files)} visualization files in {output_dir}")
         return generated_files

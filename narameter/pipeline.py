@@ -86,7 +86,7 @@ class NarameterPipeline:
         import datetime
         base_dir = output_dir or self.config.output.dir
         input_basename = os.path.splitext(os.path.basename(input_path))[0]
-        timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%d-%m-%y_%H%M%S")
         output_dir = os.path.join(base_dir, f"{timestamp}_{input_basename}")
         
         os.makedirs(output_dir, exist_ok=True)
@@ -194,6 +194,77 @@ class NarameterPipeline:
             topic_info.to_csv(os.path.join(output_dir, "topic_info.csv"), index=False)
             
             console.print(f"  Found [green]{len(topic_info)}[/green] topics")
+            
+            # Sentiment Analysis
+            console.print("\n[bold]💬 Sentiment Analysis[/bold]")
+            try:
+                from narameter.analysis.sentiment import SentimentAnalyzer
+                
+                sentiment_analyzer = SentimentAnalyzer(device=self.config.embedding.device)
+                
+                # Use original (non-stemmed) texts for better sentiment accuracy
+                original_texts = []
+                original_periods = []
+                text_col_orig = "text" if "text" in df.columns else "text_clean"
+                for period in sorted(df["period"].unique()):
+                    period_df = df[df["period"] == period]
+                    original_texts.extend(period_df[text_col_orig].tolist())
+                    original_periods.extend([period] * len(period_df))
+                
+                # Align with doc_topics (both should be same length as flat_texts)
+                topic_sentiment, corpus_sentiment = sentiment_analyzer.compute_topic_sentiment(
+                    flat_texts, doc_topics, flat_periods
+                )
+                
+                # Save sentiment outputs
+                topic_sentiment.to_csv(os.path.join(output_dir, "sentiment_by_topic.csv"), index=False)
+                corpus_sentiment.to_csv(os.path.join(output_dir, "corpus_sentiment.csv"), index=False)
+                
+                console.print(f"  Analyzed sentiment for [green]{len(flat_texts)}[/green] documents")
+                
+                # Attach corpus sentiment to results for visualization
+                results = results.merge(
+                    corpus_sentiment.rename(columns={"period": "period_b"}),
+                    on="period_b",
+                    how="left",
+                )
+            except Exception as e:
+                logger.warning(f"Sentiment analysis failed: {e}. Skipping.")
+                corpus_sentiment = None
+
+            # Entity Extraction
+            console.print("\n[bold]🏷️  Entity Extraction (NER)[/bold]")
+            entity_matrix = None
+            try:
+                from narameter.analysis.entities import EntityExtractor
+
+                entity_extractor = EntityExtractor(device=self.config.embedding.device)
+                entity_df = entity_extractor.extract_entities(flat_texts, flat_periods)
+
+                if not entity_df.empty:
+                    entity_df.to_csv(os.path.join(output_dir, "entity_tracking.csv"), index=False)
+                    entity_matrix = entity_extractor.get_entity_prominence_matrix(entity_df)
+
+                    # Add top entities per shift period to results
+                    for idx, row in results[results["is_shift"]].iterrows():
+                        period_b = row["period_b"]
+                        period_ents = entity_df[entity_df["period"] == period_b]
+                        if not period_ents.empty:
+                            top_ents = period_ents.nlargest(3, "frequency")
+                            ent_str = ", ".join(
+                                f"{r['entity']} ({r['entity_type']})"
+                                for _, r in top_ents.iterrows()
+                            )
+                            results.at[idx, "top_entities"] = ent_str
+
+                    console.print(
+                        f"  Tracked [green]{entity_df['entity'].nunique()}[/green] unique entities"
+                        f" across [green]{entity_df['period'].nunique()}[/green] periods"
+                    )
+                else:
+                    console.print("  [dim]No entities detected.[/dim]")
+            except Exception as e:
+                logger.warning(f"Entity extraction failed: {e}. Skipping.")
 
         summary = self.detector.summary(results)
 
@@ -207,6 +278,7 @@ class NarameterPipeline:
             output_dir=output_dir,
             distance_matrix=distance_matrix,
             distance_labels=matrix_labels,
+            entity_matrix=entity_matrix if self.topic_modeler is not None else None,
         )
 
         for f in generated_files:
@@ -333,14 +405,18 @@ class NarameterPipeline:
         text_col = "text_clean" if "text_clean" in df.columns else "text"
 
         if granularity == "day":
-            df["period"] = df["timestamp"].dt.strftime("%Y-%m-%d")
-        elif granularity in ["week", "month"]:
+            df["period"] = df["timestamp"].dt.strftime("%d-%m-%y")
+        elif granularity == "week":
             # Drop timezone info to avoid pandas UserWarning before converting to period
             ts_no_tz = df["timestamp"].dt.tz_localize(None)
-            if granularity == "week":
-                df["period"] = ts_no_tz.dt.to_period("W").astype(str)
-            else:
-                df["period"] = ts_no_tz.dt.to_period("M").astype(str)
+            periods = ts_no_tz.dt.to_period("W")
+            # Format as DD-MM-YY/DD-MM-YY
+            df["period"] = periods.apply(
+                lambda p: f"{p.start_time.strftime('%d-%m-%y')}/{p.end_time.strftime('%d-%m-%y')}"
+            )
+        elif granularity == "month":
+            ts_no_tz = df["timestamp"].dt.tz_localize(None)
+            df["period"] = ts_no_tz.dt.strftime("%m-%y")
         else:
             raise ValueError(f"Unknown granularity: {granularity}")
 

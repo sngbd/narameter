@@ -30,7 +30,7 @@ class NarrativeShiftDetector:
     - "threshold": Flag distances above a fixed threshold value
     """
 
-    VALID_METHODS = {"zscore", "iqr", "otsu", "threshold"}
+    VALID_METHODS = {"zscore", "iqr", "otsu", "threshold", "pelt"}
 
     # Shift magnitude categories
     MAGNITUDE_THRESHOLDS = {
@@ -101,6 +101,8 @@ class NarrativeShiftDetector:
             df = self._detect_otsu(df)
         elif method == "threshold":
             df = self._detect_threshold(df)
+        elif method == "pelt":
+            df = self._detect_pelt(df)
 
         # Classify magnitude
         df["shift_magnitude"] = df["z_score"].apply(self._classify_magnitude)
@@ -244,6 +246,62 @@ class NarrativeShiftDetector:
         df["rolling_std"] = global_std
 
         logger.info(f"Otsu threshold: {best_threshold:.6f}")
+
+        return df
+
+    def _detect_pelt(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Detect shifts using PELT (Pruned Exact Linear Time) change point detection.
+
+        Uses the `ruptures` library to find optimal segmentation breakpoints
+        in the Wasserstein distance time series. Provides statistically
+        rigorous change point detection with configurable sensitivity.
+
+        Reference:
+            Killick, R., Fearnhead, P., & Eckley, I.A. (2012).
+            Optimal detection of changepoints with a linear computational cost.
+            JASA, 107(500), 1590-1598.
+        """
+        import ruptures
+
+        distances = df["distance"].values
+        global_mean = distances.mean()
+        global_std = distances.std() if distances.std() > 0 else 1.0
+
+        # PELT requires at least 2 data points
+        if len(distances) < 3:
+            df["z_score"] = (distances - global_mean) / global_std
+            df["threshold"] = 0.0
+            df["is_shift"] = False
+            df["rolling_mean"] = global_mean
+            df["rolling_std"] = global_std
+            return df
+
+        # Run PELT on the distance signal
+        signal = distances.reshape(-1, 1)
+        penalty = self.config.pelt_penalty
+        algo = ruptures.Pelt(model="rbf", min_size=1).fit(signal)
+        breakpoints = algo.predict(pen=penalty)
+
+        # breakpoints are 1-indexed positions *after* the change.
+        # Convert to 0-indexed boolean mask: the transition *before* a breakpoint is a shift.
+        # e.g., breakpoint=3 means the segment changes after index 2,
+        # so the transition at index 2 (row 2) is a shift.
+        shift_indices = set()
+        for bp in breakpoints:
+            idx = bp - 1  # Convert to 0-indexed
+            if 0 <= idx < len(distances):
+                shift_indices.add(idx)
+
+        df["z_score"] = (distances - global_mean) / global_std
+        df["threshold"] = penalty
+        df["is_shift"] = [i in shift_indices for i in range(len(distances))]
+        df["rolling_mean"] = global_mean
+        df["rolling_std"] = global_std
+
+        logger.info(
+            f"PELT detected {len(shift_indices)} change points "
+            f"(penalty={penalty})"
+        )
 
         return df
 

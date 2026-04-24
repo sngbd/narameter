@@ -33,11 +33,12 @@ class DistanceConfig:
 
 @dataclass
 class DetectionConfig:
-    method: str = "otsu"  # "zscore", "iqr", "otsu", "threshold"
+    method: str = "otsu"  # "zscore", "iqr", "otsu", "threshold", "pelt"
     zscore_threshold: float = 2.0
     fixed_threshold: Optional[float] = None
     window_size: int = 3
     min_period_size: int = 10
+    pelt_penalty: float = 1.0  # Penalty for PELT change point detection (higher = fewer shifts)
 
 
 @dataclass

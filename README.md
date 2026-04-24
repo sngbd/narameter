@@ -15,9 +15,10 @@ Narameter is a Python pipeline that detects shifts in public narratives over tim
 3. **Encodes** texts into sentence embeddings using multilingual Sentence-BERT
 4. **Constructs** empirical distributions per time period
 5. **Computes** Wasserstein Distance between consecutive period distributions
-6. **Detects** statistically significant narrative shifts using **Otsu's Thresholding Methodology** 
-7. **Extracts & Summarizes** topics from shifted periods using BERTopic and **Llama 3** Generative AI via a zero-cost Groq pipeline.
-8. **Visualizes** results with dynamically formatted time-series plots, UMAP projections, and heatmaps.
+6. **Detects** statistically significant narrative shifts using **Otsu's Thresholding Methodology** or the **PELT (Pruned Exact Linear Time)** statistical algorithm.
+7. **Extracts & Summarizes** topics from shifted periods using BERTopic and **Generative AI** (Gemini, Llama 3 via Groq, OpenAI) or local phrasing (KeyBERT).
+8. **Analyzes Sentiment & Entities** by calculating polarity `[-1, +1]` scores per topic and running Named Entity Recognition (NER) to track actors driving the narrative.
+9. **Visualizes** results with dynamically formatted multi-axis time-series plots, UMAP projections, distance matrices, and entity prominence heatmaps.
 
 ## Installation
 
@@ -50,10 +51,8 @@ narameter run --input data/sample/synthetic.csv --text-col "text" --date-col "ti
 |---------|-------------|
 | `narameter run` | Run the full pipeline |
 | `narameter scrape` | Scrape Twitter/X data |
+| `narameter scrape-run` | Scrape Twitter/X data and immediately run pipeline |
 | `narameter embed` | Generate embeddings only |
-| `narameter distance` | Compute Wasserstein distances |
-| `narameter detect` | Detect narrative shifts |
-| `narameter visualize` | Generate visualizations |
 | `narameter sample` | Generate synthetic sample data |
 
 ## Architecture
@@ -69,11 +68,13 @@ Distribusi Embedding per Periode Waktu
    ↓
 Wasserstein Distance (EMD / Sinkhorn / Sliced)
    ↓
-Deteksi Perubahan Narasi (Otsu's Method Algorithm)
+Deteksi Perubahan Narasi (Otsu's Method algorithm / PELT algorithm)
    ↓
-Identifikasi Topik (BERTopic / c-TF-IDF / Llama 3 API)
+Identifikasi Topik & Anotasi GenAI (BERTopic / c-TF-IDF / Gemini / Llama 3 / OpenAI)
    ↓
-Visualisasi & Laporan Dinamis (auto-timestamped directories)
+Sentiment Tracking & Named Entity/Actor Extraction (multilingual BERT / NER)
+   ↓
+Visualisasi & Laporan Dinamis (auto-timestamped directories, dual-axis timelines, heatmaps)
 ```
 
 ## Configuration
@@ -82,17 +83,18 @@ Edit `config.yaml` to customize pipeline behavior. Key settings:
 
 - **`embedding.model_name`**: SBERT model (default: `paraphrase-multilingual-MiniLM-L12-v2`)
 - **`distance.method`**: `"sliced"` (fast), `"sinkhorn"` (regularized), or `"emd"` (exact)
-- **`detection.method`**: `"otsu"` (variance maximization) or `"zscore"`
+- **`detection.method`**: `"otsu"` (variance maximization), `"zscore"`, or `"pelt"` (change point detection, supports `pelt_penalty` param)
 - **`time_period.granularity`**: `"day"`, `"week"`, or `"month"`
-- **`topic.llm_model_name`**: The LLM parsing topic geometries. Defaults safely to **`llama-3.1-8b-instant`** over Groq APIs to circumvent free-tier token limitations. 
+- **`topic.representation_model`** (in `fast_config.yaml`): The model for parsing topic geometries. Supports `"gemini"`, `"openai"`, `"keybert"`, or Groq APIs (Llama 3) to circumvent free-tier token limitations. 
 
-💡 **Note on Environment Variables:** You can drop a `.env` file directly directly into the root folder containing `GROQ_API_KEY=gsk_...` or `OPENAI_API_KEY=sk_...`. The pipeline natively loads `python-dotenv` prior to execution, so `source .env` isn't required.
+💡 **Note on Environment Variables:** You can drop a `.env` file directly into the root folder containing `GOOGLE_API_KEY=AIza...`, `GROQ_API_KEY=gsk_...`, or `OPENAI_API_KEY=sk_...`. The pipeline natively loads `python-dotenv` prior to execution, so `source .env` isn't required.
 
 ## Outputs
 Data exports securely route to dynamically timestamped directories (e.g. `output/[filename]_[timestamp]/`) containing visualization PNGs alongside dual-layered topic matrices:
-*   `results.csv` (Annotated shifts over LLM titles)
-*   `topic_proportions.csv` 
-*   `topic_proportions_keywords.csv` (Provides the underlying c-TF-IDF raw keywords for reality-checking the LLM translations).
+*   `results.csv` (Annotated shifts over LLM titles, including tracking of top detected entities)
+*   `topic_proportions.csv` and `topic_proportions_keywords.csv` (Provides the underlying c-TF-IDF raw keywords for reality-checking the LLM translations).
+*   `sentiment_by_topic.csv` & `corpus_sentiment.csv` (Topic and corpus level sentiment polarity mapped to `[-1, 1]`)
+*   `entity_tracking.csv` (Named entity recognition frequency lists per period)
 
 ## References
 
